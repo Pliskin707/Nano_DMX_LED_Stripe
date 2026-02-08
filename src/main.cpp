@@ -1,10 +1,18 @@
 #include <Arduino.h>
-#include <DMXSerial.h>
 #include <U8g2lib.h>
 #include <Wire.h>
 
+#define DEBUG_MODE  // uses the Serial port for debugging messsages. Cannot be used together with DMXSerial as both use the same hardware serial port.
+
+#ifdef DEBUG_MODE
+#include <HardwareSerial.h>
+#else
+#include <DMXSerial.h>
+#endif
+
 #define DMX_ADDR (200u)
-#define LED_STRIPE_PIN (13)  // Pin D9/PB1/OC1A/LED_BUILTIN (make sure this is a hardware PWM pin which does not use Timer0 as this one is requried for millis() and delay() functions)
+#define LED_STRIPE_PIN (9)  // Pin D9/PB1/OC1A/LED_BUILTIN (make sure this is a hardware PWM pin which does not use Timer0 as this one is requried for millis() and delay() functions)
+
 
 #define FONT_SMALL              u8g2_font_resoledmedium_tr
 #define FONT_SMALL_MONO         u8g2_font_profont12_mf
@@ -13,48 +21,74 @@
 
 auto oled = U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C(U8G2_R0);
 
+void dim(__typeof__((oled))& instance, const bool dim)
+{
+    const uint8_t v = 3;    // value from 0 to 7, higher values more brighter
+    const uint8_t p1 = 3;   // p1: 1..15, higher values, more darker, however almost no difference with 3 or more
+    const uint8_t p2 = 1;   // p2: 1..15, higher values, more brighter
+
+    if (dim)
+    {
+        instance.setContrast(0);
+        instance.sendF("ca", 0x0db, v << 4);
+        instance.sendF("ca", 0x0d9, (p2 << 4) | p1 );
+    }
+}
+
 void setup() {
   pinMode(LED_STRIPE_PIN, OUTPUT);
 
-  // setup timer1 for the highest possible PWM frequency for the LED stripe to avoid flickering.
-  // this is required for the LED stripe to work properly, otherwise it will flicker at low brightness levels.
-  // the default PWM frequency for pins D5 and D6 is around 980 Hz, which may cause the recorded image of the camera to flicker at low brightness levels.
-  // the following code sets the PWM frequency for pins D5 and D6 to around 31 kHz.
-  // this is done by setting the timer1 prescaler to 1 and the timer1 mode to Fast PWM with TOP at OCR1A (mode 15).
-  // for more information on how to set the PWM frequency for the LED stripe, see the following links:
-  // - https://www.arduino.cc/en/Tutorial/SecretsOfArduinoPWM
+  #ifdef DEBUG_MODE
+  Serial.begin(115200);
+  #endif
   
-  // Set Timer1 to Fast PWM mode (WGM1 = 15) with TOP at OCR1A
-  TCCR1A = (1 << COM1A1) | (1 << WGM11) | (1 << WGM10);
-  TCCR1B = (1 << WGM13) | (1 << WGM12) | (1 << CS10);
-  OCR1A = 255; // Set TOP value for 8-bit PWM
+  // Use Timer1 hardware to produce a stable fast PWM output
+  TCCR1A = (1 << COM1A1) | (1 << WGM10);
+  TCCR1B = (1 << WGM12) | (1 << CS10);
 
   // setup the OLED display
-  if (oled.begin())
-  {
-      oled.setPowerSave(false);
-      oled.clearBuffer();
-      oled.setFont(FONT_LARGE);
-      oled.setDrawColor(1);
+  oled.initDisplay();
+  oled.setPowerSave(0);
+  oled.clearDisplay();
+  oled.setFont(FONT_SMALL);
+  oled.setDrawColor(1);
+  oled.drawStr(0, 16, "DMX");
+  oled.sendBuffer();
 
-      oled.setCursor(0, 16);
-      oled.print("DMX");
-      oled.display();
-  }
-
+  #ifndef DEBUG_MODE
   DMXSerial.init(DMXReceiver);
-
+  
   // default/start brightness
-  DMXSerial.write(DMX_ADDR, 255);
+  DMXSerial.write(DMX_ADDR, 200);
+  #endif
 }
 
 void loop() {
+  auto toggleBuiltinLED = []() { digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); };
+
+  static uint32_t runningIndicator = 0uL;
+  if ((millis() - runningIndicator) > 1000uL)
+  {
+    runningIndicator = millis();
+    toggleBuiltinLED();
+  }
+
+  static bool dimmed = false;
+  if ((millis() > 3000uL) && !dimmed)
+  {
+    dimmed = true;
+    dim(oled, true);
+  }
+
+  #ifdef DmxSerial_h
   if (DMXSerial.dataUpdated())
   {
     DMXSerial.resetUpdated();
+    toggleBuiltinLED(); // also visualizes communication
 
     // Update the LED stripe brightness based on the DMX value
     uint8_t brightness = DMXSerial.read(DMX_ADDR);
     analogWrite(LED_STRIPE_PIN, brightness);
   }
+  #endif
 }
