@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <U8g2lib.h>
+#include <U8g2lib.h>  // dynamic buffer allocation stays disabled, since only one display is used (this µC doesn't have enough RAM for two displays anyways)
 #include <Wire.h>
 
 // #define DEBUG_MODE  // uses the Serial port for debugging messsages. Cannot be used together with DMXSerial as both use the same hardware serial port.
@@ -11,7 +11,7 @@
 #endif
 
 #define DMX_ADDR (200u)
-#define LED_STRIPE_PIN (9)  // Pin D9/PB1/OC1A/LED_BUILTIN (make sure this is a hardware PWM pin which does not use Timer0 as this one is requried for millis() and delay() functions)
+#define LED_STRIPE_PIN (9)  // Pin D9/PB1/OC1A (make sure this is a hardware PWM pin which does not use Timer0 as this one is requried for millis() and delay() functions)
 
 
 #define FONT_SMALL              u8g2_font_resoledmedium_tr
@@ -19,8 +19,8 @@
 #define FONT_LARGE              u8g2_font_chargen_92_tf
 #define FONT_LARGE_MONO         u8g2_font_chargen_92_mf
 
-auto oled = U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C(U8G2_R0);
-static uint8_t prevBrightness = 205u;
+static auto oled = U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C(U8G2_R0);
+static uint8_t prevBrightness = 205u; // 80%
 
 void dim(__typeof__((oled))& instance, const bool dim)
 {
@@ -57,7 +57,7 @@ void printBrightnessBar(__typeof__((oled))& instance, const uint8_t brightness)
   instance.setFont(FONT_LARGE_MONO);
   instance.setFontDirection(0);
   instance.setFontMode(true);
-  instance.setDrawColor(2);
+  instance.setDrawColor(2); // exor
   char buf[5];
   snprintf(buf, sizeof(buf), "%3d", (brightness * 100) / 255);
   buf[sizeof(buf) - 1] = 0;
@@ -79,7 +79,7 @@ void setup() {
   Serial.begin(115200);
   #endif
   
-  // Use Timer1 hardware to produce a stable fast PWM output
+  // Use Timer1 hardware to produce a stable fast PWM output (62.5 kHz)
   TCCR1A = (1 << COM1A1) | (1 << WGM10);
   TCCR1B = (1 << WGM12) | (1 << CS10);
 
@@ -103,6 +103,8 @@ void setup() {
   DMXSerial.init(DMXReceiver);
   
   // default/start brightness
+  // for now this does not start at 100% since the arduino lib would disconnect the output pin at set it to "permanently high"
+  // since I want to check if the camera image flickers with the chosen frequency, it is set to a lower value until the check is done
   DMXSerial.write(DMX_ADDR, prevBrightness);
   #endif
 }
