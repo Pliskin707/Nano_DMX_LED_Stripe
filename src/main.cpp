@@ -53,6 +53,11 @@ void setup() {
   oled.setFont(FONT_SMALL);
   oled.setDrawColor(1);
   oled.drawStr(0, 16, "DMX");
+  oled.setFont(FONT_LARGE_MONO);
+  oled.drawStr(40, 16, "100");
+  oled.setFont(FONT_SMALL);
+  oled.drawStr(76, 16, "%");
+  oled.drawFrame(40, 18, (128 - 40), (32 - 18));
   oled.sendBuffer();
 
   #ifndef DEBUG_MODE
