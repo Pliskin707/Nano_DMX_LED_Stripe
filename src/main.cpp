@@ -2,7 +2,7 @@
 #include <U8g2lib.h>
 #include <Wire.h>
 
-#define DEBUG_MODE  // uses the Serial port for debugging messsages. Cannot be used together with DMXSerial as both use the same hardware serial port.
+// #define DEBUG_MODE  // uses the Serial port for debugging messsages. Cannot be used together with DMXSerial as both use the same hardware serial port.
 
 #ifdef DEBUG_MODE
 #include <HardwareSerial.h>
@@ -20,6 +20,7 @@
 #define FONT_LARGE_MONO         u8g2_font_chargen_92_mf
 
 auto oled = U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C(U8G2_R0);
+static uint8_t prevBrightness = 205u;
 
 void dim(__typeof__((oled))& instance, const bool dim)
 {
@@ -33,6 +34,42 @@ void dim(__typeof__((oled))& instance, const bool dim)
         instance.sendF("ca", 0x0db, v << 4);
         instance.sendF("ca", 0x0d9, (p2 << 4) | p1 );
     }
+}
+
+void printBrightnessBar(__typeof__((oled))& instance, const uint8_t brightness)
+{
+  const u8g2_uint_t 
+    xStart       = 40,
+    maxBarLen    = instance.getWidth() - xStart - 2 * 2, // frame + 1 pixel for the bar, each left and right
+    barLen       = static_cast<u8g2_uint_t>((static_cast<uint16_t>(brightness) * static_cast<uint16_t>(maxBarLen)) / UINT16_C(255)),
+    textBaseLine = (instance.getHeight() + 16) / 2;
+
+  // clear previous content
+  instance.setDrawColor(0);
+  instance.drawBox(xStart, 0, instance.getWidth() - xStart, instance.getHeight());
+  instance.setDrawColor(1);
+
+  // draw bar
+  instance.drawFrame(xStart, 0, instance.getWidth() - xStart, instance.getHeight());
+  instance.drawBox(xStart + 2 + (maxBarLen - barLen), 2, barLen, instance.getHeight() - 2 * 2);
+
+  // add text
+  instance.setFont(FONT_LARGE_MONO);
+  instance.setFontDirection(0);
+  instance.setFontMode(true);
+  instance.setDrawColor(2);
+  char buf[5];
+  snprintf(buf, sizeof(buf), "%3d", (brightness * 100) / 255);
+  buf[sizeof(buf) - 1] = 0;
+  instance.drawStr(60, textBaseLine, buf);
+  instance.setFont(FONT_SMALL);
+  instance.drawStr(96, textBaseLine, "%");
+
+  // revert "special" font modes
+  instance.setFontMode(false);
+  instance.setDrawColor(1);
+
+  instance.sendBuffer();
 }
 
 void setup() {
@@ -50,26 +87,29 @@ void setup() {
   oled.initDisplay();
   oled.setPowerSave(0);
   oled.clearDisplay();
-  oled.setFont(FONT_SMALL);
   oled.setDrawColor(1);
-  oled.drawStr(0, 16, "DMX");
-  oled.setFont(FONT_LARGE_MONO);
-  oled.drawStr(40, 16, "100");
+
   oled.setFont(FONT_SMALL);
-  oled.drawStr(76, 16, "%");
-  oled.drawFrame(40, 18, (128 - 40), (32 - 18));
-  oled.sendBuffer();
+  oled.setFontDirection(3);
+  oled.drawRFrame(0, 0, 22, oled.getHeight(), 5);
+  char buf[10];
+  oled.drawStr(10, oled.getHeight() - 7, "DMX:");
+  snprintf(buf, sizeof(buf), "%3ud", DMX_ADDR);
+  oled.drawStr(19, oled.getHeight() - 6, buf);
+
+  printBrightnessBar(oled, prevBrightness);
 
   #ifndef DEBUG_MODE
   DMXSerial.init(DMXReceiver);
   
   // default/start brightness
-  DMXSerial.write(DMX_ADDR, 200);
+  DMXSerial.write(DMX_ADDR, prevBrightness);
   #endif
 }
 
 void loop() {
   auto toggleBuiltinLED = []() { digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); };
+  static uint32_t nextOledUpdate = 0uL;
 
   static uint32_t runningIndicator = 0uL;
   if ((millis() - runningIndicator) > 1000uL)
@@ -94,6 +134,17 @@ void loop() {
     // Update the LED stripe brightness based on the DMX value
     uint8_t brightness = DMXSerial.read(DMX_ADDR);
     analogWrite(LED_STRIPE_PIN, brightness);
+
+    if ((brightness != prevBrightness) && !nextOledUpdate)
+      nextOledUpdate = millis() + 100uL; // update OLED with some delay to avoid too many updates
+
+    prevBrightness = brightness;
   }
   #endif
+
+  if (millis() >= nextOledUpdate)
+  {
+    nextOledUpdate = 0uL;
+    printBrightnessBar(oled, prevBrightness);
+  }
 }
