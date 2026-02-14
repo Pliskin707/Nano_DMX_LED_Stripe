@@ -10,7 +10,7 @@
 #include <DMXSerial.h>
 #endif
 
-#define DMX_ADDR (200u)
+#define DMX_ADDR (488u)
 #define LED_STRIPE_PIN (9)  // Pin D9/PB1/OC1A (make sure this is a hardware PWM pin which does not use Timer0 as this one is requried for millis() and delay() functions)
 
 
@@ -130,7 +130,6 @@ void loop() {
   #ifdef DmxSerial_h
   if (DMXSerial.dataUpdated())
   {
-    DMXSerial.resetUpdated();
     toggleBuiltinLED(); // also visualizes communication
 
     // Update the LED stripe brightness based on the DMX value
@@ -141,6 +140,7 @@ void loop() {
       nextOledUpdate = millis() + 100uL; // update OLED with some delay to avoid too many updates
 
     prevBrightness = brightness;
+    DMXSerial.resetUpdated();
   }
   #endif
 
@@ -149,4 +149,6 @@ void loop() {
     nextOledUpdate = 0uL;
     printBrightnessBar(oled, prevBrightness);
   }
+  
+  yield();
 }
